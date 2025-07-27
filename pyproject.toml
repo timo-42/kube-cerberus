@@ -1,0 +1,20 @@
+[project]
+name = "kube-cerberus"
+version = "0.1.0"
+description = "Kubernetes admission framework in python"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Core admission validation has no external dependencies
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.1.0",
+    "black>=23.0.0",
+    "pdbpp>=0.10.0",
+    "pyyaml>=6.0.2",  # Only needed for loading K8s manifests in tests/demos
+    "requests>=2.25.0",  # For integration tests HTTP requests
+    "kubernetes>=29.0.0",  # For Kubernetes client integration tests
+]
