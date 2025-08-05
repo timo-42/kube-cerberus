@@ -13,8 +13,5 @@ dev = [
     "pytest>=7.0.0",
     "ruff>=0.1.0",
     "black>=23.0.0",
-    "pdbpp>=0.10.0",
-    "pyyaml>=6.0.2",  # Only needed for loading K8s manifests in tests/demos
-    "requests>=2.25.0",  # For integration tests HTTP requests
-    "kubernetes>=29.0.0",  # For Kubernetes client integration tests
+    "pdbpp>=0.10.0", # For Kubernetes client integration tests
 ]
