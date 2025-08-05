@@ -6,6 +6,13 @@ on:
   - pull_request
 jobs:
   unit-tests:
+    strategy:
+      matrix:
+        python:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+          - "3.14"
     runs-on: ubuntu-latest
     steps:
       - name: "SETUP: Checkout repository"
@@ -15,10 +22,14 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: "SETUP: Install dependencies"
+        env:
+          UV_PYTHON: "${{ matrix.python }}"
         run: |
           make install
 
       - name: "RUN: Tests"
+        env:
+          UV_PYTHON: "${{ matrix.python }}"
         run: |
           ls -l
           pwd
