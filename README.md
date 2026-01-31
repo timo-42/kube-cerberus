@@ -2,10 +2,16 @@
 
 A Kubernetes admission validation framework in Python that provides a simple decorator-based approach for creating admission controllers.
 
+## Features
+
+- **Simple decorator-based API** - Use `@validating` decorator to register validation functions
+- **Flexible filtering** - Filter by kind, namespace, apiVersion, or operation using strings or regex
+- **Proper Kubernetes format** - Returns standard AdmissionReview responses
+- **Zero dependencies** - Core framework has no external dependencies
+- **Comprehensive testing** - Unit tests and integration tests with kind
+
 ## TODO
 
-- Return proper Kubernetes admission response dictionary format instead of simple boolean
-- Add integration test with kind
 - Add mutating webhook framework
 
 ## Quick Start
@@ -44,7 +50,7 @@ class AdmissionWebhookHandler(BaseHTTPRequestHandler):
         
         # Process with registry
         registry = Registry()
-        result = registry.validate(admission_request)
+        result = registry.process_admission_review(admission_request)
         
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -64,9 +70,17 @@ python webhook_server.py
 
 ## Development
 
+### Running Tests
+
 ```bash
-# Run tests
+# Run unit tests only
 make test-unit
+
+# Run integration tests (requires Docker)
+make test-integration
+
+# Run all tests
+make test-all
 
 # Build wheel
 make build-wheel
@@ -74,3 +88,42 @@ make build-wheel
 # Clean up
 make clean
 ```
+
+### Integration Tests
+
+Integration tests use [kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) to test the admission webhook in a real Kubernetes cluster.
+
+**Prerequisites:**
+- Docker Desktop (or Docker daemon)
+- kubectl (install from [kubernetes.io](https://kubernetes.io/docs/tasks/tools/))
+- kind (auto-installed by setup script if missing)
+
+**Running integration tests:**
+
+```bash
+# Setup kind cluster (one-time)
+make test-integration-setup
+
+# Run integration tests
+make test-integration
+
+# Cleanup cluster when done
+make test-integration-teardown
+```
+
+**Note:** The kind cluster is reused across test runs for speed. To start fresh, run `make test-integration-teardown` first.
+
+### Test Coverage
+
+- **Unit tests** (`tests/unit_tests/`): Fast tests with no external dependencies
+  - Registry and validator logic
+  - Pre-condition checking
+  - Field extraction
+  - End-to-end validation flows
+
+- **Integration tests** (`tests/integration_tests/`): Real Kubernetes cluster tests
+  - Pod validation acceptance
+  - Pod validation rejection
+  - Multiple validators
+  - Resource limit validation
+  - Webhook server health checks

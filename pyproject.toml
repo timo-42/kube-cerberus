@@ -13,5 +13,10 @@ dev = [
     "pytest>=7.0.0",
     "ruff>=0.1.0",
     "black>=23.0.0",
-    "pdbpp>=0.10.0", # For Kubernetes client integration tests
+    "pdbpp>=0.10.0",
+]
+integration = [
+    "kubernetes>=28.1.0",  # Kubernetes Python client
+    "requests>=2.31.0",    # HTTP requests for testing
+    "cryptography>=41.0.0", # For generating test certificates
 ]
