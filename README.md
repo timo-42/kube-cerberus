@@ -1,25 +1,26 @@
 # kube-cerberus
 
-A Kubernetes admission validation framework in Python that provides a simple decorator-based approach for creating admission controllers.
+A Kubernetes admission framework in Python that provides decorator-based validating and mutating admission hooks.
 
 ## Features
 
-- **Simple decorator-based API** - Use `@validating` decorator to register validation functions
+- **Simple decorator-based API** - Use `@validating` and `@mutating` decorators
 - **Flexible filtering** - Filter by kind, namespace, apiVersion, or operation using strings or regex
-- **Proper Kubernetes format** - Returns standard AdmissionReview responses
+- **Pre-condition skip semantics** - Non-matching filters skip hooks instead of rejecting requests
+- **Detailed validation messages** - Validators can return `(bool, message)` for rich denial reasons
+- **Async hook support** - Async validators and mutators are supported
+- **Mutating AdmissionReview support** - Returns JSONPatch responses for Kubernetes mutating webhooks
+- **Webhook config generator CLI** - Generate webhook YAML via `cerberus generate-webhook`
+- **Prometheus metrics** - Request, rejection, error, and latency metrics available via `Registry.metrics_text()`
 - **Zero dependencies** - Core framework has no external dependencies
 - **Comprehensive testing** - Unit tests and integration tests with kind
-
-## TODO
-
-- Add mutating webhook framework
 
 ## Quick Start
 
 Create your admission webhook server in just a few lines:
 
 ```python
-from kube_cerberus.validator import validating
+from kube_cerberus.validator import mutating, validating
 from kube_cerberus.registry import Registry
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
@@ -40,6 +41,16 @@ def validate_namespaces(object: dict) -> bool:
     """Ensure namespaces follow naming conventions"""
     name = object.get("metadata", {}).get("name", "")
     return name.startswith(("dev-", "prod-", "staging-"))
+
+@mutating(name="default-team-label", kind="Pod", operation="CREATE")
+def add_team_label(object: dict) -> dict:
+    metadata = dict(object.get("metadata", {}))
+    labels = dict(metadata.get("labels", {}))
+    labels.setdefault("team", "platform")
+    metadata["labels"] = labels
+    object = dict(object)
+    object["metadata"] = metadata
+    return object
 
 # Create webhook server
 class AdmissionWebhookHandler(BaseHTTPRequestHandler):
@@ -66,6 +77,11 @@ if __name__ == "__main__":
 Run your webhook server:
 ```bash
 python webhook_server.py
+```
+
+Generate webhook YAML from registered hooks:
+```bash
+cerberus generate-webhook --url https://webhook.example.com:8443 --mode both
 ```
 
 ## Development

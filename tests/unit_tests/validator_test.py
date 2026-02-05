@@ -1,6 +1,5 @@
 import pytest
 import re
-from types import MappingProxyType
 from kube_cerberus.registry import REGISTRY
 from kube_cerberus.validator import validating
 
@@ -127,14 +126,13 @@ def test_end_to_end_validation_with_no_validators(basic_pod_request):
 
 def test_end_to_end_validation_pre_condition_filter(basic_pod_request):
     """Test that pre-conditions properly filter requests"""
-    # This test demonstrates current behavior: failed pre-conditions cause validation failure
     @validating("service-validator", kind="Service")
     def validate_service():
         return False  # This should not be called for Pod
         
-    # Current behavior: pre-condition failure causes overall validation failure
+    # New behavior: pre-condition mismatch skips validator
     result = REGISTRY.validate_request(basic_pod_request)
-    assert result is False  # Pre-condition failure causes overall validation failure
+    assert result is True
 
 
 def test_multiple_validators_all_pass(valid_pod_with_env_request):
@@ -309,7 +307,5 @@ def test_validation_with_regex_conditions(regex_patterns, prod_namespace_request
     assert result is False
     
     # Test Service in prod namespace - should pass (validator doesn't apply)
-    # Service should pass because pre-condition (kind regex) doesn't match
-    # But current implementation returns False on pre-condition failure
     result = REGISTRY.validate_request(prod_namespace_requests["service_in_prod"])
-    assert result is False  # Current behavior: pre-condition failure causes validation failure
+    assert result is True

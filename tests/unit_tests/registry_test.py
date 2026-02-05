@@ -203,6 +203,23 @@ def test_check_pre_conditions_failure():
     pre_condition2.assert_called_once_with(request)
 
 
+def test_check_pre_conditions_skip_on_none():
+    """Test that None pre-condition result causes validator skip."""
+    registry = Registry()
+    pre_condition = Mock(return_value=None)
+    validator = Validator(
+        pre_conditions=[pre_condition],
+        user_function=Mock(),
+        name="test",
+        extract_fields={},
+    )
+
+    request = {"test": "data"}
+    result = registry._check_pre_conditions(validator, request)
+
+    assert result is None
+
+
 def test_extract_validator_kwargs():
     """Test extracting kwargs for validator"""
     registry = Registry()
@@ -235,7 +252,8 @@ def test_run_validator_success():
     kwargs = {"test": "data"}
     result = registry._run_validator(validator, kwargs)
     
-    assert result is True
+    assert result.allowed is True
+    assert result.message == ""
     user_function.assert_called_once_with(**kwargs)
 
 
@@ -253,7 +271,8 @@ def test_run_validator_false_result():
     kwargs = {"test": "data"}
     result = registry._run_validator(validator, kwargs)
     
-    assert result is False
+    assert result.allowed is False
+    assert "Validation failed" in result.message
 
 
 def test_run_validator_non_bool_result():
@@ -270,7 +289,24 @@ def test_run_validator_non_bool_result():
     kwargs = {"test": "data"}
     result = registry._run_validator(validator, kwargs)
     
-    assert result is False
+    assert result.allowed is False
+    assert "invalid result type" in result.message
+
+
+def test_run_validator_tuple_result_with_message():
+    """Test tuple validator return with custom failure message."""
+    registry = Registry()
+    user_function = Mock(return_value=(False, "pod missing label"))
+    validator = Validator(
+        pre_conditions=[],
+        user_function=user_function,
+        name="test",
+        extract_fields={},
+    )
+
+    result = registry._run_validator(validator, {})
+    assert result.allowed is False
+    assert result.message == "pod missing label"
 
 
 def test_validate_request_success():
@@ -362,7 +398,7 @@ def test_condition_check_string_mismatch():
     check_func = create_condition_check(["object", "kind"], "Pod")
     request = {"object": {"kind": "Service"}}
     
-    assert check_func(request) is False
+    assert check_func(request) is None
 
 
 def test_condition_check_regex_match():
@@ -380,7 +416,7 @@ def test_condition_check_regex_mismatch():
     check_func = create_condition_check(["object", "kind"], pattern)
     request = {"object": {"kind": "Service"}}
     
-    assert check_func(request) is False
+    assert check_func(request) is None
 
 
 def test_condition_check_missing_field():
@@ -388,7 +424,7 @@ def test_condition_check_missing_field():
     check_func = create_condition_check(["object", "missing"], "value")
     request = {"object": {"kind": "Pod"}}
     
-    assert check_func(request) is False
+    assert check_func(request) is None
 
 
 def test_condition_check_non_string_field():
@@ -396,7 +432,7 @@ def test_condition_check_non_string_field():
     check_func = create_condition_check(["object", "spec"], "value")
     request = {"object": {"spec": {"replicas": 3}}}
     
-    assert check_func(request) is False
+    assert check_func(request) is None
 
 
 def test_create_pre_conditions_all_none():

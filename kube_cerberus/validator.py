@@ -10,54 +10,64 @@ import re
 import inspect
 
 # Import required classes from registry module
-from .registry import REGISTRY, Validator, ValidatingHook
+from .registry import REGISTRY, MutatingHook, Mutator, Validator, ValidatingHook
 
 
 def create_condition_check(field_path: list[str], expected_value: str | re.Pattern):
-    """Create a condition check function for the given field path and expected value"""
-    def check(request: dict[str, Any]) -> bool:
+    """Create a condition check that returns True on match and None on mismatch."""
+
+    def check(request: dict[str, Any]) -> bool | None:
         # Navigate through nested dict using field_path
         current = request
         for field in field_path:
-            current = current.get(field, {})
-        
+            if isinstance(current, dict):
+                current = current.get(field, {})
+            else:
+                current = {}
+                break
+
         actual_value = current if isinstance(current, str) else ""
-        
+
         if isinstance(expected_value, re.Pattern):
-            return bool(expected_value.match(actual_value))
-        return actual_value == expected_value
+            if not actual_value:
+                return None
+            return True if expected_value.match(actual_value) else None
+
+        if not actual_value:
+            return None
+        return True if actual_value == expected_value else None
+
     return check
 
 
 def create_pre_conditions(
-    kind: str | re.Pattern | None, 
-    namespace: str | re.Pattern | None, 
+    kind: str | re.Pattern | None,
+    namespace: str | re.Pattern | None,
     apiVersion: str | re.Pattern | None,
-    operation: str | re.Pattern | None
+    operation: str | re.Pattern | None,
 ) -> list:
-    """Create pre-conditions based on provided parameters"""
+    """Create pre-conditions based on provided parameters."""
     pre_conditions = []
-    
-    # Mapping of parameter names to their paths in the request
-    condition_mappings = {
-        kind: ["object", "kind"],
-        namespace: ["object", "metadata", "namespace"],
-        apiVersion: ["object", "apiVersion"],
-        operation: ["operation"],
-    }
-    
-    for value, path in condition_mappings.items():
+
+    condition_mappings: list[tuple[str | re.Pattern | None, list[str]]] = [
+        (kind, ["object", "kind"]),
+        (namespace, ["object", "metadata", "namespace"]),
+        (apiVersion, ["object", "apiVersion"]),
+        (operation, ["operation"]),
+    ]
+
+    for value, path in condition_mappings:
         if value is not None:
             pre_conditions.append(create_condition_check(path, value))
-    
+
     return pre_conditions
 
 
 def extract_fields_from_signature(f: Callable) -> dict[str, list[str]]:
-    """Extract the fields that need to be passed to the function based on its signature"""
+    """Extract the fields that need to be passed to the function based on signature."""
     sig = inspect.signature(f)
     extract_fields = {}
-    
+
     # Mapping of parameter names to their paths in the request
     field_mappings = {
         "labels": ["object", "metadata", "labels"],
@@ -175,10 +185,14 @@ def validating(
 
         # Create a validator with the decorated function and pre-conditions
         validator = Validator(
-            pre_conditions=pre_conditions, 
-            user_function=f, 
+            pre_conditions=pre_conditions,
+            user_function=f,
             name=name,
-            extract_fields=extract_fields
+            extract_fields=extract_fields,
+            kind_filter=kind,
+            namespace_filter=namespace,
+            api_version_filter=apiVersion,
+            operation_filter=operation,
         )
 
         # Check if hook exists, if it does throw an exception
@@ -189,6 +203,45 @@ def validating(
         hook = ValidatingHook(name=name, validators=[validator])
         REGISTRY.add_validating_webhook(hook)
 
+        return f
+
+    return inner
+
+
+def mutating(
+    name: str,
+    kind: str | re.Pattern | None = None,
+    namespace: str | re.Pattern | None = None,
+    apiVersion: str | re.Pattern | None = None,
+    operation: str | re.Pattern | None = None,
+):
+    """
+    Decorator to register a Kubernetes admission mutating function.
+
+    The decorated function must return the mutated Kubernetes object (dict).
+    Async functions are supported.
+    """
+
+    def inner(f):
+        pre_conditions = create_pre_conditions(kind, namespace, apiVersion, operation)
+        extract_fields = extract_fields_from_signature(f)
+
+        mutator = Mutator(
+            pre_conditions=pre_conditions,
+            user_function=f,
+            name=name,
+            extract_fields=extract_fields,
+            kind_filter=kind,
+            namespace_filter=namespace,
+            api_version_filter=apiVersion,
+            operation_filter=operation,
+        )
+
+        if name in REGISTRY.mutating_hooks:
+            raise Exception(f"Duplicate hook name: {name}")
+
+        hook = MutatingHook(name=name, mutators=[mutator])
+        REGISTRY.add_mutating_webhook(hook)
         return f
 
     return inner
