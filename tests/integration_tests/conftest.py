@@ -19,6 +19,9 @@ from tests.integration_tests.webhook_server import WebhookServer
 from kube_cerberus.registry import REGISTRY
 
 
+CLUSTER_NAME = "cerberus-test"
+
+
 def _webhook_host() -> str:
     override = os.environ.get("KIND_WEBHOOK_HOST")
     if override:
@@ -26,6 +29,33 @@ def _webhook_host() -> str:
 
     if sys.platform == "darwin":
         return "host.docker.internal"
+
+    try:
+        nodes_result = subprocess.run(
+            ["kind", "get", "nodes", "--name", CLUSTER_NAME],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        nodes = [line for line in nodes_result.stdout.splitlines() if line]
+        if nodes:
+            inspect_result = subprocess.run(
+                [
+                    "docker",
+                    "inspect",
+                    "-f",
+                    "{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}",
+                    nodes[0],
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            gateway = inspect_result.stdout.strip()
+            if gateway:
+                return gateway
+    except Exception:
+        pass
 
     try:
         result = subprocess.run(
@@ -59,7 +89,7 @@ def kind_cluster():
     Cleanup is manual via 'make test-integration-teardown' to allow reusing
     cluster across multiple test runs for speed.
     """
-    cluster_name = "cerberus-test"
+    cluster_name = CLUSTER_NAME
     test_dir = Path(__file__).parent
     setup_script = test_dir / "scripts" / "setup_kind.sh"
 
