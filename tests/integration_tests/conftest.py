@@ -91,7 +91,7 @@ def kind_cluster():
 
 
 @pytest.fixture(scope="session")
-def webhook_certs(tmp_path_factory):
+def webhook_certs(tmp_path_factory, kind_cluster):
     """Generate self-signed certificates for webhook server."""
     from cryptography import x509
     from cryptography.x509.oid import NameOID
