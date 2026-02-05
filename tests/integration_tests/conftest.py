@@ -6,6 +6,8 @@ import time
 import tempfile
 import base64
 import datetime
+import ipaddress
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -15,6 +17,37 @@ from kubernetes.client.rest import ApiException
 
 from tests.integration_tests.webhook_server import WebhookServer
 from kube_cerberus.registry import REGISTRY
+
+
+def _webhook_host() -> str:
+    override = os.environ.get("KIND_WEBHOOK_HOST")
+    if override:
+        return override
+
+    if sys.platform == "darwin":
+        return "host.docker.internal"
+
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "network",
+                "inspect",
+                "kind",
+                "--format",
+                "{{(index .IPAM.Config 0).Gateway}}",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        gateway = result.stdout.strip()
+        if gateway:
+            return gateway
+    except Exception:
+        pass
+
+    return "host.docker.internal"
 
 
 @pytest.fixture(scope="session")
@@ -75,6 +108,19 @@ def webhook_certs(tmp_path_factory):
     )
 
     # Generate certificate
+    webhook_host = _webhook_host()
+    alt_names = []
+    alt_names.extend(
+        [
+            x509.DNSName("localhost"),
+            x509.DNSName("webhook-server"),
+            x509.DNSName("host.docker.internal"),
+        ]
+    )
+    try:
+        alt_names.append(x509.IPAddress(ipaddress.ip_address(webhook_host)))
+    except ValueError:
+        alt_names.append(x509.DNSName(webhook_host))
     subject = issuer = x509.Name(
         [
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
@@ -92,13 +138,7 @@ def webhook_certs(tmp_path_factory):
         .not_valid_before(datetime.datetime.utcnow())
         .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=1))
         .add_extension(
-            x509.SubjectAlternativeName(
-                [
-                    x509.DNSName("localhost"),
-                    x509.DNSName("webhook-server"),
-                    x509.DNSName("host.docker.internal"),
-                ]
-            ),
+            x509.SubjectAlternativeName(alt_names),
             critical=False,
         )
         .sign(private_key, hashes.SHA256())
@@ -185,7 +225,7 @@ def webhook_configured(k8s_client, webhook_certs):
             client.V1ValidatingWebhook(
                 name="test.cerberus.k8s.io",
                 client_config=client.AdmissionregistrationV1WebhookClientConfig(
-                    url="https://host.docker.internal:8443",  # kind can reach host
+                    url=f"https://{_webhook_host()}:8443",
                     ca_bundle=webhook_certs["ca_bundle_b64"],
                 ),
                 rules=[
