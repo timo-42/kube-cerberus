@@ -126,5 +126,119 @@ class Registry:
         
         return True
 
+    def validate(self, request: dict[str, Any]) -> bool:
+        """
+        Alias for validate_request() for backward compatibility.
+        
+        Args:
+            request: Admission request dictionary
+            
+        Returns:
+            Boolean indicating if validation passed
+        """
+        return self.validate_request(request)
+
+    def process_admission_review(self, admission_review: dict[str, Any]) -> dict[str, Any]:
+        """
+        Process a Kubernetes AdmissionReview request and return AdmissionReview response.
+        
+        This method accepts a complete AdmissionReview object (as sent by Kubernetes API server),
+        processes it through the validation pipeline, and returns a properly formatted
+        AdmissionReview response.
+        
+        Args:
+            admission_review: Full AdmissionReview object from Kubernetes with structure:
+                {
+                    "apiVersion": "admission.k8s.io/v1",
+                    "kind": "AdmissionReview",
+                    "request": {
+                        "uid": "...",
+                        "kind": {...},
+                        "object": {...},
+                        "oldObject": {...},
+                        "operation": "CREATE|UPDATE|DELETE|CONNECT",
+                        "userInfo": {...},
+                        ...
+                    }
+                }
+            
+        Returns:
+            AdmissionReview response with proper Kubernetes format:
+                {
+                    "apiVersion": "admission.k8s.io/v1",
+                    "kind": "AdmissionReview",
+                    "response": {
+                        "uid": "...",
+                        "allowed": true/false,
+                        "status": {  # only present when allowed=false
+                            "message": "Validation failed: reason"
+                        }
+                    }
+                }
+        
+        Examples:
+            >>> review = {
+            ...     "apiVersion": "admission.k8s.io/v1",
+            ...     "kind": "AdmissionReview",
+            ...     "request": {
+            ...         "uid": "abc-123",
+            ...         "operation": "CREATE",
+            ...         "object": {
+            ...             "kind": "Pod",
+            ...             "apiVersion": "v1",
+            ...             "metadata": {"name": "test-pod"}
+            ...         }
+            ...     }
+            ... }
+            >>> registry = Registry()
+            >>> response = registry.process_admission_review(review)
+            >>> response["response"]["allowed"]
+            True
+        """
+        request = admission_review.get("request", {})
+        uid = request.get("uid", "")
+        
+        # Extract the admission request data in the format expected by validate_request
+        admission_request = {
+            "object": request.get("object", {}),
+            "oldObject": request.get("oldObject"),
+            "operation": request.get("operation", ""),
+            "userInfo": request.get("userInfo", {}),
+        }
+        
+        # Run validation
+        try:
+            is_valid = self.validate_request(admission_request)
+            
+            response = {
+                "apiVersion": "admission.k8s.io/v1",
+                "kind": "AdmissionReview",
+                "response": {
+                    "uid": uid,
+                    "allowed": is_valid
+                }
+            }
+            
+            if not is_valid:
+                response["response"]["status"] = {
+                    "message": "Validation failed"
+                }
+            
+            return response
+            
+        except Exception as e:
+            # On error, reject the request and include error message
+            return {
+                "apiVersion": "admission.k8s.io/v1",
+                "kind": "AdmissionReview",
+                "response": {
+                    "uid": uid,
+                    "allowed": False,
+                    "status": {
+                        "message": f"Validation error: {str(e)}"
+                    }
+                }
+            }
+
 
 REGISTRY = Registry()

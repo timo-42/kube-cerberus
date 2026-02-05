@@ -177,3 +177,11 @@ cython_debug/
 # OS
 .DS_Store
 Thumbs.db
+
+# Integration test artifacts
+tests/integration_tests/*.pem
+tests/integration_tests/*.key
+tests/integration_tests/*.crt
+tests/integration_tests/kubeconfig
+tests/integration_tests/certs/
+.pytest_tmp/
