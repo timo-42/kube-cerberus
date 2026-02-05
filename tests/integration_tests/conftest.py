@@ -1,4 +1,5 @@
 """Pytest fixtures for integration tests."""
+
 import os
 import subprocess
 import time
@@ -20,7 +21,7 @@ from kube_cerberus.registry import REGISTRY
 def kind_cluster():
     """
     Create and manage a kind cluster for tests.
-    
+
     The cluster is created once at session start and reused for all tests.
     Cleanup is manual via 'make test-integration-teardown' to allow reusing
     cluster across multiple test runs for speed.
@@ -28,33 +29,30 @@ def kind_cluster():
     cluster_name = "cerberus-test"
     test_dir = Path(__file__).parent
     setup_script = test_dir / "scripts" / "setup_kind.sh"
-    
+
     # Setup cluster
     env = os.environ.copy()
     env["CLUSTER_NAME"] = cluster_name
-    
+
     try:
         subprocess.run(
             ["bash", str(setup_script)],
             check=True,
             env=env,
             capture_output=True,
-            text=True
+            text=True,
         )
     except subprocess.CalledProcessError as e:
         pytest.fail(f"Failed to setup kind cluster: {e.stderr}")
-    
+
     # Load kubeconfig
     try:
         config.load_kube_config(context=f"kind-{cluster_name}")
     except Exception as e:
         pytest.fail(f"Failed to load kubeconfig: {e}")
-    
-    yield {
-        "name": cluster_name,
-        "context": f"kind-{cluster_name}"
-    }
-    
+
+    yield {"name": cluster_name, "context": f"kind-{cluster_name}"}
+
     # Note: Cleanup is manual via make test-integration-teardown
     # This allows reusing cluster across multiple test runs for speed
 
@@ -67,61 +65,65 @@ def webhook_certs(tmp_path_factory):
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.hazmat.primitives import serialization
-    
+
     cert_dir = tmp_path_factory.mktemp("certs")
-    
+
     # Generate private key
     private_key = rsa.generate_private_key(
         public_exponent=65537,
         key_size=2048,
     )
-    
+
     # Generate certificate
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Cerberus Test"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "webhook-server"),
-    ])
-    
-    cert = x509.CertificateBuilder().subject_name(
-        subject
-    ).issuer_name(
-        issuer
-    ).public_key(
-        private_key.public_key()
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
-        datetime.datetime.utcnow()
-    ).not_valid_after(
-        datetime.datetime.utcnow() + datetime.timedelta(days=1)
-    ).add_extension(
-        x509.SubjectAlternativeName([
-            x509.DNSName("localhost"),
-            x509.DNSName("webhook-server"),
-            x509.DNSName("host.docker.internal"),
-        ]),
-        critical=False,
-    ).sign(private_key, hashes.SHA256())
-    
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Cerberus Test"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "webhook-server"),
+        ]
+    )
+
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(private_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime.utcnow())
+        .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=1))
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("localhost"),
+                    x509.DNSName("webhook-server"),
+                    x509.DNSName("host.docker.internal"),
+                ]
+            ),
+            critical=False,
+        )
+        .sign(private_key, hashes.SHA256())
+    )
+
     # Write files
     key_file = cert_dir / "server.key"
     cert_file = cert_dir / "server.crt"
-    
+
     with open(key_file, "wb") as f:
-        f.write(private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption()
-        ))
-    
+        f.write(
+            private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
+
     with open(cert_file, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
-    
+
     # Get CA bundle (self-signed, so cert is CA)
     ca_bundle_pem = cert.public_bytes(serialization.Encoding.PEM)
-    ca_bundle_b64 = base64.b64encode(ca_bundle_pem).decode('utf-8')
-    
+    ca_bundle_b64 = base64.b64encode(ca_bundle_pem).decode("utf-8")
+
     return {
         "cert_file": str(cert_file),
         "key_file": str(key_file),
@@ -134,17 +136,17 @@ def webhook_certs(tmp_path_factory):
 def webhook_server(webhook_certs):
     """Start webhook server for tests."""
     server = WebhookServer(
-        host='0.0.0.0',
+        host="0.0.0.0",
         port=8443,
         cert_file=webhook_certs["cert_file"],
         key_file=webhook_certs["key_file"],
     )
-    
+
     server.start()
     time.sleep(2)  # Give server time to start
-    
+
     yield server
-    
+
     server.stop()
 
 
@@ -170,12 +172,12 @@ def k8s_client(kind_cluster):
 def webhook_configured(k8s_client, webhook_certs):
     """
     Deploy ValidatingWebhookConfiguration.
-    
+
     This fixture is function-scoped and cleans up after each test.
     """
     admission_api = k8s_client["admission"]
     webhook_name = "cerberus-test-webhook"
-    
+
     # Create webhook configuration
     webhook_config = client.V1ValidatingWebhookConfiguration(
         metadata=client.V1ObjectMeta(name=webhook_name),
@@ -184,14 +186,14 @@ def webhook_configured(k8s_client, webhook_certs):
                 name="test.cerberus.k8s.io",
                 client_config=client.AdmissionregistrationV1WebhookClientConfig(
                     url="https://host.docker.internal:8443",  # kind can reach host
-                    ca_bundle=webhook_certs["ca_bundle_b64"].encode()
+                    ca_bundle=webhook_certs["ca_bundle_b64"],
                 ),
                 rules=[
                     client.V1RuleWithOperations(
                         operations=["CREATE", "UPDATE"],
                         api_groups=[""],
                         api_versions=["v1"],
-                        resources=["pods"]
+                        resources=["pods"],
                     )
                 ],
                 admission_review_versions=["v1"],
@@ -199,9 +201,9 @@ def webhook_configured(k8s_client, webhook_certs):
                 timeout_seconds=10,
                 failure_policy="Fail",
             )
-        ]
+        ],
     )
-    
+
     try:
         admission_api.create_validating_webhook_configuration(webhook_config)
     except ApiException as e:
@@ -211,11 +213,11 @@ def webhook_configured(k8s_client, webhook_certs):
             )
         else:
             raise
-    
+
     time.sleep(3)  # Wait for webhook to be ready
-    
+
     yield webhook_config
-    
+
     # Cleanup
     try:
         admission_api.delete_validating_webhook_configuration(webhook_name)
