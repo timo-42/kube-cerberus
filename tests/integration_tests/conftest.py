@@ -3,10 +3,10 @@
 import os
 import subprocess
 import time
-import tempfile
 import base64
 import datetime
 import ipaddress
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -20,6 +20,35 @@ from kube_cerberus.registry import REGISTRY
 
 
 CLUSTER_NAME = "cerberus-test"
+
+
+def _first_line(text: str) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return ""
+    return cleaned.splitlines()[0]
+
+
+def _ensure_integration_runtime() -> None:
+    for binary in ("docker", "kind", "kubectl"):
+        if shutil.which(binary) is None:
+            pytest.skip(f"Skipping integration tests: '{binary}' is not installed.")
+
+    try:
+        docker_info = subprocess.run(
+            ["docker", "info"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        pytest.skip(f"Skipping integration tests: unable to run docker ({exc}).")
+
+    if docker_info.returncode != 0:
+        reason = _first_line(docker_info.stderr) or _first_line(docker_info.stdout)
+        if not reason:
+            reason = "docker info failed"
+        pytest.skip(f"Skipping integration tests: Docker is unavailable ({reason}).")
 
 
 def _webhook_host() -> str:
@@ -93,6 +122,8 @@ def kind_cluster():
     test_dir = Path(__file__).parent
     setup_script = test_dir / "scripts" / "setup_kind.sh"
 
+    _ensure_integration_runtime()
+
     # Setup cluster
     env = os.environ.copy()
     env["CLUSTER_NAME"] = cluster_name
@@ -106,6 +137,11 @@ def kind_cluster():
             text=True,
         )
     except subprocess.CalledProcessError as e:
+        error_text = (e.stderr or e.stdout or "").lower()
+        if "permission denied while trying to connect to the docker api" in error_text:
+            pytest.skip(
+                "Skipping integration tests: Docker socket is not accessible for kind."
+            )
         pytest.fail(f"Failed to setup kind cluster: {e.stderr}")
 
     # Load kubeconfig
