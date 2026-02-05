@@ -29,10 +29,20 @@ def _first_line(text: str) -> str:
     return cleaned.splitlines()[0]
 
 
+def _running_on_github_actions() -> bool:
+    return os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+
+
+def _skip_or_fail(reason: str) -> None:
+    if _running_on_github_actions():
+        pytest.fail(reason)
+    pytest.skip(f"Skipping integration tests: {reason}")
+
+
 def _ensure_integration_runtime() -> None:
     for binary in ("docker", "kind", "kubectl"):
         if shutil.which(binary) is None:
-            pytest.skip(f"Skipping integration tests: '{binary}' is not installed.")
+            _skip_or_fail(f"required binary '{binary}' is not installed.")
 
     try:
         docker_info = subprocess.run(
@@ -42,13 +52,13 @@ def _ensure_integration_runtime() -> None:
             text=True,
         )
     except OSError as exc:
-        pytest.skip(f"Skipping integration tests: unable to run docker ({exc}).")
+        _skip_or_fail(f"unable to run docker ({exc}).")
 
     if docker_info.returncode != 0:
         reason = _first_line(docker_info.stderr) or _first_line(docker_info.stdout)
         if not reason:
             reason = "docker info failed"
-        pytest.skip(f"Skipping integration tests: Docker is unavailable ({reason}).")
+        _skip_or_fail(f"Docker is unavailable ({reason}).")
 
 
 def _webhook_host() -> str:
@@ -139,9 +149,7 @@ def kind_cluster():
     except subprocess.CalledProcessError as e:
         error_text = (e.stderr or e.stdout or "").lower()
         if "permission denied while trying to connect to the docker api" in error_text:
-            pytest.skip(
-                "Skipping integration tests: Docker socket is not accessible for kind."
-            )
+            _skip_or_fail("Docker socket is not accessible for kind.")
         pytest.fail(f"Failed to setup kind cluster: {e.stderr}")
 
     # Load kubeconfig
